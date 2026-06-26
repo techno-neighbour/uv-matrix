@@ -240,9 +240,7 @@ def test_resolve_job_skips_empty_rendered_list_elements():
         "--extra",
         "cli",
         "--with",
-        "sh",
-        "-c",
-        "pytest",
+        *_shell_command("pytest"),
     ]
 
 
@@ -256,9 +254,7 @@ def test_resolve_job_strips_rendered_list_elements():
         "3.12",
         "--group",
         "test",
-        "sh",
-        "-c",
-        "pytest",
+        *_shell_command("pytest"),
     ]
 
 
