@@ -1,0 +1,33 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: uv-matrix (Python 3.10–3.14)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # uv-matrix delegates interpreter management to uv; pre-install every
+      # supported version so `uv run --python X` finds them.
+      - name: Install Python 3.10–3.14
+        run: uv python install 3.10 3.11 3.12 3.13 3.14
+
+      # Dogfood: expand the `test` matrix from pyproject.toml and run
+      # `uv run --python <ver> pytest -q` for 3.10 through 3.14.
+      - name: Run test matrix
+        run: uv run uv-matrix run --matrix test

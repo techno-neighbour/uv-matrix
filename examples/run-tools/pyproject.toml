@@ -1,0 +1,17 @@
+[project]
+name = "run-tools"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = []
+
+[tool.uv-matrix.matrix.checks]
+tasks = ["lint", "format"]
+
+[tool.uv-matrix.tasks.lint]
+run = "ruff check ."
+
+[tool.uv-matrix.tasks.format]
+run = "ruff format ."
+

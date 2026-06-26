@@ -1,0 +1,71 @@
+[project]
+name = "uv-matrix"
+version = "0.0.1"
+description = "A tiny matrix runner for Python projects using Astral uv."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Atsuo Ishimoto", email = "atsuoishimoto@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = ["jinja2>=3", "tomli>=2; python_version < '3.11'"]
+
+[project.urls]
+Homepage = "https://github.com/atsuoishimoto/uv-matrix"
+Documentation = "https://uv-matrix.readthedocs.io/"
+Repository = "https://github.com/atsuoishimoto/uv-matrix"
+Issues = "https://github.com/atsuoishimoto/uv-matrix/issues"
+
+[project.scripts]
+uv-matrix = "uv_matrix:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+docs = [
+    "sphinx>=8",
+    "myst-parser>=4",
+    "sphinx-rtd-theme>=3",
+    "linkify-it-py>=2",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.21,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# Dogfood: run uv-matrix's own test suite across every supported Python.
+[tool.uv-matrix.matrix.test]
+python-version = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+tasks = ["test"]
+
+[tool.uv-matrix.matrix.docs]
+tasks = ["build-docs"]
+
+[tool.uv-matrix.matrix.lint]
+tasks = ["lint"]
+
+[tool.uv-matrix.tasks.test]
+run = "pytest -q"
+
+[tool.uv-matrix.tasks.build-docs]
+cwd = "docs"
+groups = ["docs"]
+run = "make html"
+
+[tool.uv-matrix.tasks.lint]
+run = """ruff check --fix . && ruff format ."""
+
+
+[tool.ruff]
+lint.select = [
+  "E4",
+  "E7",
+  "E9",
+  "F",
+  "I"
+]
+line-length = 99
+

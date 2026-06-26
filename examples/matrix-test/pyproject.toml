@@ -1,0 +1,50 @@
+[project]
+name = "matrix-test"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Atsuo Ishimoto", email = "atsuoishimoto@gmail.com" }
+]
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+django = [
+    "django>=6.0.6",
+]
+flask = [
+    "flask>=3.1.3",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.20",
+]
+doc = [
+    "sphinx>=9.1.0",
+]
+
+[tool.uv-matrix]
+continue-on-error = false
+max-jobs=4
+
+[tool.uv-matrix.matrix.test]
+python-version = ["3.12", "3.13"]
+webui = ["", "django", "flask"]
+tasks = ["test"]
+
+[tool.uv-matrix.matrix.checks]
+python-version = ["3.13"]
+tasks = ["lint", "doc"]
+
+[tool.uv-matrix.tasks.test]
+run = "pytest {{ posargs }}"
+extras = ["{{ matrix['webui'] }}"]
+
+[tool.uv-matrix.tasks.lint]
+run = "ruff check {{ posargs }} ."
+
+[tool.uv-matrix.tasks.doc]
+groups = ["doc"]
+run = "make html"
+cwd = "docs"

@@ -1,0 +1,16 @@
+[project]
+name = "minimum"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.uv-matrix.matrix.test]
+python-version = ["3.12", "3.13"]
+tasks = ["run-test"]
+
+[tool.uv-matrix.tasks.run-test]
+run = "pytest"
