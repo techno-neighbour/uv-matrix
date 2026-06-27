@@ -134,7 +134,7 @@ Lists the selectable jobs — matrix name, task, and matrix cell — so you can 
 what to target on the command line. It only expands the matrices; it does
 **not** evaluate `when`, templates, or expressions, and never sets up an
 environment or runs anything. (That makes it safe to run against a config you do
-not yet trust; see {doc}`security`.)
+not yet trust.)
 
 ```text
 test:test python-version=3.11

@@ -21,18 +21,17 @@ tox is a general-purpose test environment manager: it builds virtualenvs, instal
 ## Where to next
 
 - {doc}`installation` — install uv-matrix into a uv project.
+- {doc}`quickstart` — set up pytest and ruff matrices and run them.
 - {doc}`usage` — the `run` and `list` commands and their flags.
 - {doc}`configuration` — the full `[tool.uv-matrix]` reference.
-- {doc}`api` — the Python API, generated from the source.
 
 ```{toctree}
 :hidden:
 :maxdepth: 2
 
 installation
+quickstart
 usage
 configuration
-api
-security
 changelog
 ```

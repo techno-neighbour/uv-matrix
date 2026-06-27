@@ -128,6 +128,10 @@ kind is fixed per field, never inferred from the contents:
 - an **expression** is evaluated as Python,
 - a **literal** is used as-is, never evaluated.
 
+A task's templates and expressions are evaluated **only at `run` time**, when
+jobs are actually built and executed. `list` merely enumerates the jobs and
+evaluates nothing — no template is rendered and no `when` expression is run.
+
 `run` — required, template
 : The command to run for the job.
 
@@ -193,12 +197,6 @@ A job's Python version comes from one of three places, in order:
 
 3. **uv's default.** When neither supplies a version, the job runs without
    `--python` and uv selects the interpreter itself.
-
-```{warning}
-Templates are rendered with Jinja2 and `when` expressions are evaluated as
-Python, both with no sandbox. Only run `uv-matrix` in repositories you trust.
-See {doc}`security`.
-```
 
 (templates)=
 ## Templates
