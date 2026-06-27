@@ -153,8 +153,16 @@ evaluates nothing — no template is rendered and no `when` expression is run.
   uv-matrix does not model directly. An element that renders to an empty or
   whitespace-only string is ignored (see {ref}`templates`).
 
+`envfile` — optional, template or list of templates
+: Path(s) to `.env`-style files whose variables are added to the job's
+  environment. Each path is a template (so it may read `matrix`/`vars`/`environ`).
+  With a list, a later file overrides an earlier one on a shared key, and `env`
+  (below) overrides them all. A path that names no existing file is an error. See
+  {ref}`environment`.
+
 `env` — optional, map of templates
-: Environment variables for the job (keys literal, values templated).
+: Environment variables for the job (keys literal, values templated). Override
+  any same-named variable from `envfile`. See {ref}`environment`.
 
 `cwd` — optional, template
 : The working directory the command runs in.
@@ -197,6 +205,32 @@ A job's Python version comes from one of three places, in order:
 
 3. **uv's default.** When neither supplies a version, the job runs without
    `--python` and uv selects the interpreter itself.
+
+(environment)=
+### The job environment
+
+A job's environment variables come from three layers, lowest precedence first:
+
+1. **The process environment** (`os.environ`) uv-matrix inherited.
+2. **`envfile`** — variables parsed from the `.env`-style file(s) the task names.
+3. **`env`** — the task's own map, which overrides any same-named variable above.
+
+These layers are resolved **first, before any other task field is evaluated**, and
+the result is folded into the `environ` namespace. So every later field — `run`,
+`cwd`, `groups`, and even `when` — reads the final, post-override values through
+`{{ environ['X'] }}`:
+
+```toml
+[tool.uv-matrix.tasks.test]
+envfile = ".env"                    # e.g. DATABASE_URL=sqlite:///base.db
+env = { DATABASE_URL = "sqlite:///test.db" }   # overrides the file
+# environ['DATABASE_URL'] is now "sqlite:///test.db" for run too:
+run = "pytest --db {{ environ['DATABASE_URL'] }}"
+```
+
+The same merged set is also exported to the subprocess, so the command sees the
+variables both as real environment variables (`$DATABASE_URL`) and through the
+template namespace.
 
 (templates)=
 ## Templates
@@ -289,9 +323,10 @@ run = "ruff check ."
   it is `''`.
 
 `environ`
-: A copy of the process environment (`os.environ`) as a dict, for reading
-  variables from the shell that launched uv-matrix. It is a copy, so a `when`
-  expression cannot mutate the real environment through it.
+: The process environment (`os.environ`) as a dict, overlaid with the job's
+  `envfile` and `env` values (which are resolved before any other field; see
+  {ref}`environment`), for reading variables the command will run with. It is a
+  copy, so a `when` expression cannot mutate the real environment through it.
   Example: `{{ environ['HOME'] }}` renders to the caller's home directory, and
   `when = "environ.get('CI')"` runs the task only under CI.
 

@@ -304,6 +304,108 @@ def test_resolve_job_expands_environ_into_run(monkeypatch):
     assert job.command[-3:] == _shell_command("echo hi")
 
 
+def test_resolve_job_loads_envfile_into_env(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("FOO=from_file\n# a comment\nBAR=base\n")
+    tasks = {"test": {"run": "pytest", "envfile": ".env"}}
+    job = resolve_job({}, "m", {}, "test", tasks)
+    assert job.env["FOO"] == "from_file"
+    assert job.env["BAR"] == "base"
+
+
+def test_resolve_job_env_overrides_envfile(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("FOO=from_file\nBAR=base\n")
+    tasks = {"test": {"run": "pytest", "envfile": ".env", "env": {"FOO": "from_env"}}}
+    job = resolve_job({}, "m", {}, "test", tasks)
+    assert job.env["FOO"] == "from_env"  # `env` wins over `envfile`
+    assert job.env["BAR"] == "base"  # untouched key keeps the file value
+
+
+def test_resolve_job_envfile_visible_in_run(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("GREETING=hi\n")
+    tasks = {
+        "test": {
+            "python-version": "3.12",
+            "run": "echo {{ environ['GREETING'] }}",
+            "envfile": ".env",
+        }
+    }
+    job = resolve_job({}, "m", {}, "test", tasks)
+    assert job.command[-3:] == _shell_command("echo hi")
+
+
+def test_resolve_job_env_override_visible_in_run(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("GREETING=hi\n")
+    tasks = {
+        "test": {
+            "python-version": "3.12",
+            "run": "echo {{ environ['GREETING'] }}",
+            "envfile": ".env",
+            "env": {"GREETING": "yo"},
+        }
+    }
+    job = resolve_job({}, "m", {}, "test", tasks)
+    # `run` reads the post-override value through environ.
+    assert job.command[-3:] == _shell_command("echo yo")
+
+
+def test_resolve_job_env_can_reference_envfile(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("BASE=root\n")
+    tasks = {
+        "test": {
+            "run": "pytest",
+            "envfile": ".env",
+            "env": {"DERIVED": "{{ environ['BASE'] }}/sub"},
+        }
+    }
+    job = resolve_job({}, "m", {}, "test", tasks)
+    assert job.env["DERIVED"] == "root/sub"
+
+
+def test_resolve_job_when_sees_envfile(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("UV_MATRIX_FROM_FILE", raising=False)
+    (tmp_path / ".env").write_text("UV_MATRIX_FROM_FILE=1\n")
+    tasks = {
+        "test": {
+            "run": "pytest",
+            "envfile": ".env",
+            "when": "environ.get('UV_MATRIX_FROM_FILE') == '1'",
+        }
+    }
+    # `when` is evaluated after envfile/env settle, so it reads the file's value.
+    assert resolve_job({}, "m", {}, "test", tasks) is not None
+
+
+def test_resolve_job_envfile_list_later_overrides_earlier(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("FOO=first\nONLY_BASE=keep\n")
+    (tmp_path / ".env.local").write_text("FOO=second\n")
+    tasks = {"test": {"run": "pytest", "envfile": [".env", ".env.local"]}}
+    job = resolve_job({}, "m", {}, "test", tasks)
+    assert job.env["FOO"] == "second"  # later file wins
+    assert job.env["ONLY_BASE"] == "keep"
+
+
+def test_resolve_job_envfile_path_is_templated(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.prod").write_text("STAGE=prod\n")
+    tasks = {"test": {"run": "pytest", "envfile": ".env.{{ matrix['stage'] }}"}}
+    job = resolve_job({}, "m", {"stage": "prod"}, "test", tasks)
+    assert job.env["STAGE"] == "prod"
+
+
+def test_resolve_job_envfile_missing_raises(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    tasks = {"test": {"run": "pytest", "envfile": ".env.absent"}}
+    with pytest.raises(TaskError, match="envfile"):
+        resolve_job({}, "m", {}, "test", tasks)
+
+
 def test_resolve_job_expands_posargs_into_run():
     tasks = {"test": {"python-version": "3.12", "run": "pytest {{ posargs }}"}}
     job = resolve_job({}, "m", {}, "test", tasks, ["-k", "slow"])

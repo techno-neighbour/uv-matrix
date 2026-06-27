@@ -8,7 +8,10 @@ import re
 import shlex
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+from dotenv import dotenv_values
 
 from .evaluate import build_context, eval_expr, render_string, render_template
 
@@ -101,6 +104,44 @@ def _env_key(
     return f"{label}-{digest}"
 
 
+def _load_envfiles(
+    task_config: dict[str, Any], task_name: str, ctx: dict[str, Any]
+) -> dict[str, str]:
+    """Load the task's ``envfile`` paths into a flat ``{name: value}`` mapping.
+
+    ``envfile`` is either a single path or a list of paths, each rendered as a
+    Jinja2 template (so a path may use ``matrix``/``vars``/``environ``). Files are
+    parsed in order with ``.env`` semantics; a later file overrides an earlier one
+    on a shared key, so ``env`` (applied on top by the caller) always wins last.
+
+    A path that does not name an existing file is an error rather than a silent
+    skip — ``dotenv_values`` returns ``{}`` for a missing file, so the existence
+    check is made here. A value with no ``=`` right-hand side parses to ``None``
+    and is normalized to the empty string.
+
+    Relative paths resolve from the current working directory, which the CLI sets
+    to the project root, so an ``envfile`` resolves the same as ``run``/``cwd``.
+    """
+    raw = task_config.get("envfile")
+    if raw is None:
+        return {}
+    if isinstance(raw, str):
+        paths = [raw]
+    elif isinstance(raw, list):
+        paths = raw
+    else:
+        raise TaskError(f"task {task_name!r}: 'envfile' must be a string or an array")
+
+    result: dict[str, str] = {}
+    for entry in paths:
+        path = render_string(entry, ctx)
+        if not Path(path).is_file():
+            raise TaskError(f"task {task_name!r}: envfile {path!r} not found")
+        for key, value in dotenv_values(path).items():
+            result[key] = value if value is not None else ""
+    return result
+
+
 def resolve_job(
     config: dict[str, Any],
     matrix_name: str,
@@ -122,6 +163,20 @@ def resolve_job(
         raise TaskError(f"undefined task {task_name!r}")
 
     ctx = build_context(config, matrix_name, cell, task_name, task_config, posargs)
+
+    # Environment is settled first, before any other field is evaluated: load the
+    # `envfile`(s), then layer the rendered `env` on top (so `env` overrides a key
+    # from a file), then fold the result into the `environ` namespace. Every field
+    # below — `when` included — therefore reads the post-override values through
+    # `{{ environ['X'] }}`. Precedence low→high: os.environ < envfile < env.
+    envfile_vars = _load_envfiles(task_config, task_name, ctx)
+    ctx["environ"] = {**os.environ, **envfile_vars}  # so `env` can read envfile values
+    rendered_env = {
+        str(key): render_string(value, ctx) for key, value in task_config.get("env", {}).items()
+    }
+    env = {**envfile_vars, **rendered_env}
+    ctx["environ"] = {**os.environ, **env}
+
     if "when" in task_config and not eval_expr(task_config["when"], ctx):
         return None
 
@@ -158,9 +213,6 @@ def resolve_job(
     # The shell is chosen per-OS (sh on POSIX, cmd.exe on Windows).
     command += _shell_command(run)
 
-    env = {
-        str(key): render_string(value, ctx) for key, value in task_config.get("env", {}).items()
-    }
     cwd = render_string(task_config["cwd"], ctx) if "cwd" in task_config else None
     # The task's own `continue-on-error` wins; otherwise the global
     # [tool.uv-matrix] default applies; otherwise false (stop on this failure).
