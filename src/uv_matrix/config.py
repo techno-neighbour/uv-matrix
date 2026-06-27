@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import itertools
-import re
+import keyword
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -25,35 +25,80 @@ TASKS_KEY = "tasks"
 # word to remember; the two live in different parent tables and never collide.
 TASK_DEFS_TABLE = "tasks"
 
-# A matrix axis name may use any character except whitespace and '='. '=' is the
-# KEY=VALUE separator for `--filter`, and whitespace would be ambiguous on the
-# command line and in the `key=value` job labels, so both are rejected.
-_INVALID_AXIS_NAME = re.compile(r"[\s=]")
-
 
 class ConfigError(Exception):
     """Raised when the uv-matrix configuration is missing or invalid."""
 
 
-def validate_axis_name(name: str) -> str:
-    """Return ``name`` unchanged, or raise ``ConfigError`` if it is not a valid axis name.
+def _is_valid_name(name: str) -> bool:
+    """Python's variable rules, plus ``-`` (hyphen).
 
-    Axis names must be non-empty and contain neither whitespace nor ``=`` so they
-    stay unambiguous as the key in a ``--filter KEY=VALUE`` selector.
+    A name is valid when, with hyphens turned into underscores, it is a Python
+    identifier that is not a keyword. So ``python-version`` and ``django_version``
+    are accepted, while ``os.name``, ``py3.13``, ``ns:axis`` and ``bad name`` are
+    not. The hyphen is allowed because configuration keys conventionally spell
+    multi-word names with it (``python-version``, ``continue-on-error``); it is
+    turned into ``_`` when the name is exposed to templates and expressions as a
+    top-level variable (see :func:`uv_matrix.evaluate.build_context`).
     """
-    if not name or _INVALID_AXIS_NAME.search(name):
+    candidate = name.replace("-", "_")
+    return candidate.isidentifier() and not keyword.iskeyword(candidate)
+
+
+def validate_name(name: str, kind: str) -> str:
+    """Return ``name`` unchanged, or raise ``ConfigError`` if it is not valid.
+
+    ``kind`` names what is being validated (e.g. ``"matrix name"``) so the error
+    message points at the offending value. Validity follows :func:`_is_valid_name`:
+    Python's variable rules with ``-`` also allowed.
+    """
+    if not _is_valid_name(name):
         raise ConfigError(
-            f"invalid matrix axis name {name!r}: axis names must be non-empty and "
-            f"must not contain whitespace or '='"
+            f"invalid {kind} {name!r}: names must follow Python's variable rules "
+            f"with '-' also allowed (e.g. 'python-version')"
         )
     return name
+
+
+def validate_axis_name(name: str) -> str:
+    """Return ``name`` unchanged, or raise ``ConfigError`` if it is not a valid axis name."""
+    return validate_name(name, "matrix axis name")
+
+
+def validate_config_names(config: dict[str, Any]) -> None:
+    """Validate every matrix name, axis name, and ``vars`` key up front.
+
+    Called once after the config is loaded so both ``list`` and ``run`` reject an
+    invalid name with a clear error. Within a single matrix, two axes whose names
+    collapse to the same underscore form (e.g. ``a-b`` and ``a_b``) are rejected:
+    they would map to the same top-level template/expression alias and so be
+    ambiguous.
+    """
+    for matrix_name, matrix_def in config.get("matrix", {}).items():
+        validate_name(matrix_name, "matrix name")
+        if not isinstance(matrix_def, dict):
+            continue
+        seen: dict[str, str] = {}
+        for key in matrix_def:
+            if key == TASKS_KEY:
+                continue
+            validate_name(key, "matrix axis name")
+            alias = key.replace("-", "_")
+            if alias in seen and seen[alias] != key:
+                raise ConfigError(
+                    f"matrix {matrix_name!r}: axes {seen[alias]!r} and {key!r} both "
+                    f"map to the alias {alias!r}"
+                )
+            seen[alias] = key
+    for key in config.get("vars", {}):
+        validate_name(key, "variable name")
 
 
 def matrix_axes(matrix_def: dict[str, Any]) -> dict[str, Any]:
     """Return a matrix table's axes: every key except the reserved ``tasks``.
 
     Each axis name is validated, so callers reading axes consistently reject a
-    name containing whitespace or ``=``.
+    name that does not follow Python's variable rules (plus ``-``).
     """
     return {
         validate_axis_name(key): value for key, value in matrix_def.items() if key != TASKS_KEY

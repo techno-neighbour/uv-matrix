@@ -101,13 +101,16 @@ tasks exactly once.
 
 ### Axis names
 
-Axis names are arbitrary strings — they are not restricted to Python
-identifiers and may contain hyphens or non-ASCII characters. (How a task reads
-such a name in a template is covered under {ref}`templates`.)
+Axis names follow Python's variable rules, **plus** `-` (hyphen): a name is valid
+when, with hyphens turned into underscores, it is a Python identifier. So
+`python-version`, `django-version`, and `webui` are fine, while `os.name`,
+`py3.13`, `ns:axis`, and `bad name` are rejected as configuration errors. The same
+rule applies to matrix names and `[tool.uv-matrix.vars]` keys. (How a task reads a
+hyphenated name in a template is covered under {ref}`templates`.)
 
 ```toml
 [tool.uv-matrix.matrix.compat]
-"django-version" = ["Django>=4.2,<4.3", "Django>=5.0,<5.1"]
+django-version = ["Django>=4.2,<4.3", "Django>=5.0,<5.1"]
 tasks = ["test"]
 ```
 
@@ -241,18 +244,22 @@ Template fields are Jinja2, so expressions and method calls work inside them:
 run = "pytest --junitxml=.reports/py{{ matrix['python-version'].replace('.', '') }}/pytest.xml"
 ```
 
-The matrix cell is exposed as the `matrix` dict, so always read an axis with
-dict lookup (`matrix['django-version']`). Jinja2's `matrix.key` attribute
-shorthand works only for keys that are valid Python identifiers — for a
-hyphenated name it parses as a subtraction:
+Every matrix axis is exposed two ways: as a key in the `matrix` dict
+(`matrix['django-version']`) **and** as a top-level variable with `-` replaced by
+`_` (`django_version`). The top-level form is the convenient one for a hyphenated
+name, since `matrix.django-version` parses as a subtraction in Jinja2:
 
 ```toml
 [tool.uv-matrix.tasks.test]
-# correct: dict lookup
+# both of these render the same value:
+uv-args = ["--with", "{{ django_version }}"]
 uv-args = ["--with", "{{ matrix['django-version'] }}"]
-# does not work: matrix.django-version parses as a subtraction in Jinja2
 run = "pytest"
 ```
+
+`[tool.uv-matrix.vars]` keys are exposed the same way — `vars['db-url']` and the
+top-level `db_url` both work. On a name clash a reserved variable (see
+{ref}`variables`) wins over an axis alias, and an axis wins over a `vars` key.
 
 In the list fields `groups`, `extras`, and `uv-args`, an element that renders to
 an empty string (or only whitespace) is dropped instead of producing a bogus
@@ -271,6 +278,7 @@ end in `or ''`: a bare `{{ cond and 'web' }}` renders the falsy branch as the
 literal text `False`, which would be passed through as `--extra False` rather
 than dropped.
 
+(variables)=
 ## Variables
 
 Templates and expressions evaluate with the names below in scope. The example
@@ -295,7 +303,9 @@ run = "ruff check ."
   this combination (the reserved `tasks` key is not included). Read an axis with
   dict lookup.
   Example value `{'python-version': '3.13', 'os': 'ubuntu'}`, so
-  `{{ matrix['os'] }}` renders to `ubuntu`.
+  `{{ matrix['os'] }}` renders to `ubuntu`. Each axis is also a top-level name
+  with `-` replaced by `_`, so `{{ python_version }}` and `{{ os }}` render the
+  same values.
 
 `matrix_name`
 : The name of the matrix table this job came from — useful to branch in a `when`
@@ -305,7 +315,8 @@ run = "ruff check ."
 `vars`
 : The global `[tool.uv-matrix.vars]` table, shared by every job.
   Example value `{'reports': '.reports'}`, so
-  `{{ vars['reports'] }}` renders to `.reports`.
+  `{{ vars['reports'] }}` renders to `.reports`. Each key is also a top-level name
+  (`-` → `_`), so `{{ reports }}` renders to `.reports` as well.
 
 `task`
 : The name of the task being run.

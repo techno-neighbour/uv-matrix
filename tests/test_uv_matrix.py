@@ -14,6 +14,7 @@ from uv_matrix.config import (
     matrix_axes,
     parse_filters,
     validate_axis_name,
+    validate_config_names,
 )
 from uv_matrix.evaluate import EvalError, build_context, eval_expr, render_string, render_template
 from uv_matrix.runner import TaskError, _shell_command, resolve_job
@@ -71,15 +72,55 @@ def test_iter_plan_requires_a_matrix():
 
 
 def test_validate_axis_name_accepts_ordinary_names():
-    # ':' is allowed in axis names; only '=' and whitespace are forbidden.
-    for name in ("python", "python-version", "django_version", "os.name", "py3.13", "ns:axis"):
+    # Names follow Python's variable rules, plus '-': a hyphenated identifier is
+    # accepted, but punctuation that isn't '-' (or '_') is not.
+    for name in ("python", "python-version", "django_version", "webui", "py313"):
         assert validate_axis_name(name) == name
 
 
-def test_validate_axis_name_rejects_equals_whitespace_and_empty():
-    for bad in ("py=thon", "py thon", "py\tthon", "py\nthon", ""):
+def test_validate_axis_name_rejects_non_identifier_names():
+    # '=', whitespace, '.', ':' and a leading digit all make the name (after
+    # turning '-' into '_') not a Python identifier; the empty string and a
+    # Python keyword are rejected too.
+    for bad in (
+        "py=thon",
+        "py thon",
+        "py\tthon",
+        "py\nthon",
+        "",
+        "os.name",
+        "py3.13",
+        "ns:axis",
+        "class",
+    ):
         with pytest.raises(ConfigError):
             validate_axis_name(bad)
+
+
+def test_validate_config_names_accepts_valid_config():
+    config = {
+        "matrix": {"test": {"python-version": ["3.13"], "tasks": ["t"]}},
+        "vars": {"reports": ".reports", "db-url": "sqlite://"},
+    }
+    validate_config_names(config)  # does not raise
+
+
+def test_validate_config_names_rejects_bad_matrix_name():
+    with pytest.raises(ConfigError, match="matrix name"):
+        validate_config_names({"matrix": {"bad.name": {"tasks": ["t"]}}})
+
+
+def test_validate_config_names_rejects_bad_vars_key():
+    with pytest.raises(ConfigError, match="variable name"):
+        validate_config_names({"vars": {"bad.key": "x"}})
+
+
+def test_validate_config_names_rejects_colliding_axis_aliases():
+    # Two axes in one matrix that collapse to the same underscore alias are
+    # ambiguous (both would be exposed as the top-level `a_b`).
+    config = {"matrix": {"m": {"a-b": ["1"], "a_b": ["2"], "tasks": ["t"]}}}
+    with pytest.raises(ConfigError, match="alias"):
+        validate_config_names(config)
 
 
 def test_matrix_axes_strips_tasks_and_validates():
@@ -150,6 +191,38 @@ def test_build_context_exposes_global_vars_and_matrix_name():
     assert ctx["task"] == "lint"
     assert ctx["matrix_name"] == "checks"
     assert ctx["matrix"] == {"python": "3.13"}
+
+
+def test_build_context_exposes_axis_alias_as_top_level_var():
+    # A hyphenated axis is reachable as a top-level name with '-' -> '_', while
+    # `matrix` itself keeps the original hyphenated key.
+    ctx = build_context({}, "m", {"python-version": "3.12"}, "t", {})
+    assert ctx["python_version"] == "3.12"
+    assert ctx["matrix"] == {"python-version": "3.12"}  # matrix unchanged
+    assert render_string("{{ python_version }}", ctx) == "3.12"
+    assert render_string("{{ matrix['python-version'] }}", ctx) == "3.12"
+
+
+def test_build_context_exposes_vars_alias_as_top_level_var():
+    # Each `vars` key is also a top-level name (hyphen -> underscore); `vars`
+    # itself is left as-is for dict lookup.
+    config = {"vars": {"reports": ".reports", "db-url": "sqlite://"}}
+    ctx = build_context(config, "m", {}, "t", {})
+    assert ctx["reports"] == ".reports"
+    assert ctx["db_url"] == "sqlite://"
+    assert ctx["vars"] == {"reports": ".reports", "db-url": "sqlite://"}  # unchanged
+    assert render_string("{{ reports }}/{{ db_url }}", ctx) == ".reports/sqlite://"
+
+
+def test_build_context_reserved_names_and_matrix_axis_win_over_aliases():
+    # Reserved names take precedence over an axis alias of the same name, and a
+    # matrix axis takes precedence over a `vars` key of the same name.
+    import sys
+
+    config = {"vars": {"platform": "from-vars", "shared": "from-vars"}}
+    ctx = build_context(config, "m", {"platform": "from-axis", "shared": "from-axis"}, "t", {})
+    assert ctx["platform"] == sys.platform  # reserved builtin, not the axis
+    assert ctx["shared"] == "from-axis"  # matrix axis beats vars
 
 
 def test_resolve_job_builds_uv_command():
@@ -449,10 +522,10 @@ def test_parse_filters_splits_on_first_equals():
     assert parse_filters(config, ["expr=a==b"]) == {"expr": {"a==b"}}
 
 
-def test_parse_filters_allows_colon_in_axis_name():
-    # ':' is permitted in axis names; the filter key still splits on '='.
-    config = {"matrix": {"a": {"ns:axis": ["v"], "tasks": ["t"]}}}
-    assert parse_filters(config, ["ns:axis=v"]) == {"ns:axis": {"v"}}
+def test_parse_filters_allows_hyphen_in_axis_name():
+    # A hyphenated axis name is a valid filter key; the key/value split is on '='.
+    config = {"matrix": {"a": {"python-version": ["3.13"], "tasks": ["t"]}}}
+    assert parse_filters(config, ["python-version=3.13"]) == {"python-version": {"3.13"}}
 
 
 def test_parse_filters_supports_empty_string_value():
@@ -755,6 +828,13 @@ def test_resolve_job_when_skips():
     }
     assert resolve_job({}, "m", {"python": "3.11"}, "lint", tasks) is None
     assert resolve_job({}, "m", {"python": "3.13"}, "lint", tasks) is not None
+
+
+def test_resolve_job_when_uses_top_level_axis_alias():
+    # A hyphenated axis is usable as a bare name in `when` via its '_' alias.
+    tasks = {"lint": {"run": "ruff check .", "when": "python_version == '3.13'"}}
+    assert resolve_job({}, "m", {"python-version": "3.11"}, "lint", tasks) is None
+    assert resolve_job({}, "m", {"python-version": "3.13"}, "lint", tasks) is not None
 
 
 def test_resolve_job_extras_and_continue_on_error():
