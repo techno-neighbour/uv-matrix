@@ -20,6 +20,7 @@ from .config import (
     iter_plan,
     load_config,
     parse_filters,
+    validate_config_names,
 )
 from .evaluate import EvalError
 from .runner import Job, TaskError, resolve_job
@@ -462,6 +463,7 @@ def main(argv: list[str] | None = None) -> int:
         if Path.cwd().resolve() != root:
             os.chdir(root)
         config = load_config(pyproject)
+        validate_config_names(config)
         return args.func(config, args, root)
     except (ConfigError, TaskError, EvalError) as exc:
         print(f"error: {exc}", file=sys.stderr)

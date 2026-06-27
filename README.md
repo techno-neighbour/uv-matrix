@@ -86,7 +86,7 @@ max-jobs = 4               # run up to 4 jobs at once (1 = sequential)
 # combined as a cartesian product (here 2 x 3 = 6 cells).
 [tool.uv-matrix.matrix.test]
 python-version = ["3.12", "3.13"]   # reserved axis: inherited as `uv run --python`
-webui = ["", "django", "flask"]     # arbitrary axis: read in templates as matrix['webui']
+webui = ["", "django", "flask"]     # arbitrary axis: read in templates as {{ webui }}
 tasks = ["test"]                    # run these tasks for every cell
 
 
@@ -98,8 +98,8 @@ tasks = ["lint", "doc"]
 # Task definitions are reusable across matrices. `run` is the command to execute.
 [tool.uv-matrix.tasks.test]
 run = "pytest {{ posargs }}"   # {{ posargs }} expands to args passed after `--`
-extras = ["{{ matrix['webui'] }}"]   # adds `--extra <webui>`; the empty "" cell renders blank and is dropped
-when = "matrix['webui'] != 'django' or platform != 'win32'"   # run unless it's the django cell on Windows; a false `when` skips the job
+extras = ["{{ webui }}"]   # adds `--extra <webui>`; the empty "" cell renders blank and is dropped
+when = "webui != 'django' or platform != 'win32'"   # run unless it's the django cell on Windows; a false `when` skips the job
 
 [tool.uv-matrix.tasks.lint]
 run = "ruff check ."
@@ -112,7 +112,7 @@ cwd = "docs"          # run the command from this directory
 
 A matrix defines the values to test. A task defines the command to run.
 
-Task fields support Jinja2 templates such as `{{ matrix['webui'] }}` and `{{ posargs }}`; see the [template reference](https://uv-matrix.readthedocs.io/en/latest/configuration.html#templates) for available variables and rendering rules.
+Task fields support Jinja2 templates such as `{{ webui }}` and `{{ posargs }}`; see the [template reference](https://uv-matrix.readthedocs.io/en/latest/configuration.html#templates) for available variables and rendering rules.
 
 `when` is evaluated with Python's `eval` against uv-matrix-provided context, so treat configuration as trusted project code; see the [conditions reference](https://uv-matrix.readthedocs.io/en/latest/configuration.html#variables) for available variables and examples.
 

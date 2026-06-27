@@ -66,11 +66,27 @@ def build_context(
     ``platform`` is ``sys.platform`` of the running interpreter (e.g.
     ``"linux"``, ``"darwin"``, ``"win32"``), so a ``when`` expression can gate a
     job by OS (``when = "platform == 'win32'"``).
+
+    Each matrix axis and each ``vars`` key is also exposed as a **top-level
+    variable** with ``-`` replaced by ``_``, so a hyphenated name is usable as a
+    plain name in a template or expression (``python_version`` for the
+    ``python-version`` axis, ``{{ reports }}`` for ``vars['reports']``). The
+    ``matrix`` and ``vars`` dicts themselves are left unchanged, so the original
+    ``matrix['python-version']`` / ``vars['reports']`` lookups keep working.
+    Precedence on a name clash is reserved name > matrix axis > vars: a reserved
+    key below overrides an alias of the same name (so an axis named ``platform``
+    cannot shadow the builtin), and a matrix axis overrides a ``vars`` key (the
+    cell is the more specific, per-job value).
     """
+    vars_dict = dict(config.get("vars", {}))
+    vars_alias = {key.replace("-", "_"): value for key, value in vars_dict.items()}
+    cell_alias = {key.replace("-", "_"): value for key, value in cell.items()}
     return {
+        **vars_alias,
+        **cell_alias,
         "matrix": cell,
         "matrix_name": matrix_name,
-        "vars": dict(config.get("vars", {})),
+        "vars": vars_dict,
         "task": task_name,
         "task_config": task_config,
         "posargs": shlex.join(posargs or []),
